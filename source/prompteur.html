@@ -186,6 +186,10 @@ select.sel { background: var(--bg); border: 1px solid var(--line); border-radius
 .r-pad button:disabled { opacity: .4; }
 .r-note { width: min(520px, 100%); color: var(--muted); font-size: 13px; line-height: 1.55; }
 .r-peers { width: min(520px, 100%); }
+.lcode { font-family: var(--mono); font-size: 40px; font-weight: 600; letter-spacing: .28em; color: var(--amber); }
+.lform { display: flex; gap: 8px; flex-wrap: wrap; }
+.lform input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: .2em; font-size: 18px; }
+.lform select { flex: 1; min-width: 0; }
 
 .toast { position: fixed; left: 50%; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 60; background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 500; max-width: calc(100% - 32px); text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
 
@@ -387,6 +391,19 @@ select.sel { background: var(--bg); border: 1px solid var(--line); border-radius
     <span class="pill" id="rConn">Hors ligne</span>
   </header>
   <div class="r-body">
+    <div class="r-card" id="rLink" hidden>
+      <div class="meta"><span>Code de cet appareil</span><span class="pill" id="lSelf">…</span></div>
+      <div class="lcode num" id="lCode">······</div>
+      <form class="lform" id="lForm">
+        <input class="search num" id="lInput" maxlength="6" placeholder="Code de l'écran" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Code de l'écran à piloter">
+        <button class="btn primary" type="submit">Relier</button>
+        <button class="btn ghost" type="button" id="lUnlink" hidden>Délier</button>
+      </form>
+      <div class="lform">
+        <select class="sel" id="lScript" aria-label="Script à afficher sur l'écran"></select>
+        <button class="btn" type="button" id="lOpen" disabled>Afficher sur l'écran</button>
+      </div>
+    </div>
     <div class="r-peers" id="rPeers" hidden><select class="sel" id="rTarget" aria-label="Prompteur piloté" style="width:100%"></select></div>
     <div class="r-card">
       <div class="t" id="rTitle">Aucun prompteur ouvert</div>
@@ -493,6 +510,23 @@ const Store = {
     this.sort();
     if (this.mode === 'db') this.write(doc); else LS.set('tp.scripts', this.docs);
     this.onChange('local');
+    linkSend({ t: 'script', doc });
+  },
+  // Scripts reçus de la régie reliée : le plus récent gagne, sans renvoi.
+  merge(list) {
+    let changed = false;
+    for (const raw of list) {
+      if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !/^[\w.~:@+-]{1,200}$/.test(raw.id)) continue;
+      const doc = { id: raw.id, title: String(raw.title || '').slice(0, 300), body: String(raw.body || '').slice(0, 200000), createdAt: Number(raw.createdAt) || Date.now(), updatedAt: Number(raw.updatedAt) || Date.now() };
+      const i = this.docs.findIndex((d) => d.id === doc.id);
+      if (i >= 0 && (this.docs[i].updatedAt || 0) >= doc.updatedAt) continue;
+      if (i >= 0) this.docs[i] = doc; else this.docs.push(doc);
+      changed = true;
+    }
+    if (!changed || this.mode === 'db') return;
+    this.sort();
+    LS.set('tp.scripts', this.docs);
+    this.onChange('remote');
   },
   async write(doc) {
     const pending = this.queue.get(doc.id);
@@ -517,11 +551,12 @@ const Store = {
     }
     this.queue.delete(doc.id);
   },
-  remove(id) {
+  remove(id, fromLink) {
     this.docs = this.docs.filter((d) => d.id !== id);
     if (this.mode === 'db') this.col.doc(id).delete().catch(() => toast('Suppression impossible pour le moment.'));
     else LS.set('tp.scripts', this.docs);
-    this.onChange('local');
+    this.onChange(fromLink ? 'remote' : 'local');
+    if (!fromLink) linkSend({ t: 'delete', id });
   },
 };
 
@@ -634,6 +669,7 @@ Store.onChange = (src) => {
   renderList();
   renderEditor(false);
   refreshStage();
+  renderRemote();
 };
 
 titleIn.addEventListener('input', scheduleSave);
@@ -1031,6 +1067,12 @@ stage.addEventListener('wheel', (e) => {
 addEventListener('resize', () => { if (P.open) measure(); });
 
 document.addEventListener('keydown', (e) => {
+  // Régie : sur l'écran Télécommande, le clavier pilote l'écran relié.
+  if (!P.open && !$('#remote').hidden && !(e.target.closest && e.target.closest('input, select, textarea')) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const km = { ' ': 'toggle', ArrowUp: 'faster', ArrowDown: 'slower', ArrowLeft: 'prev', ArrowRight: 'next', PageUp: 'prev', PageDown: 'next', r: 'top', R: 'top', '+': 'bigger', '=': 'bigger', '-': 'smaller', h: 'mirror', H: 'mirror' };
+    if (km[e.key]) { e.preventDefault(); sendCmd(km[e.key]); }
+    return;
+  }
   if (!P.open) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && Lib.active && $('#remote').hidden) { e.preventDefault(); launch(); }
     if (e.key === 'Escape' && !$('#sheetWrap').hidden) closeSettings();
@@ -1168,24 +1210,40 @@ $('#sheetWrap').addEventListener('click', (e) => { if (e.target.id === 'sheetWra
 /* ---------- Télécommande (salle partagée) ---------- */
 const R = { room: null, peers: [], connected: false, target: null, presT: 0, lastPres: '' };
 
+function promptStatus() {
+  return P.open
+    ? { role: 'prompter', title: P.title.slice(0, 120), playing: P.playing, speed: S.speed, progress: Math.round((P.maxPos ? P.pos / P.maxPos : 0) * 1000) / 1000, voice: V.on, mirror: S.mirrorX }
+    : { role: 'idle' };
+}
+
 function sendPresence(force) {
-  if (!R.room) return;
+  if (!R.room && !L.ins.size) return;
   const t = performance.now();
   if (!force && t - R.presT < 300) return;
   R.presT = t;
-  const p = P.open
-    ? { role: 'prompter', title: P.title.slice(0, 120), playing: P.playing, speed: S.speed, progress: Math.round((P.maxPos ? P.pos / P.maxPos : 0) * 1000) / 1000, voice: V.on, mirror: S.mirrorX }
-    : { role: 'idle' };
+  const p = promptStatus();
   const s = JSON.stringify(p);
   if (s === R.lastPres) return;
   R.lastPres = s;
-  R.room.presence(Object.assign({ title: null, playing: null, speed: null, progress: null, voice: null, mirror: null }, p)).catch(() => {});
+  if (R.room) R.room.presence(Object.assign({ title: null, playing: null, speed: null, progress: null, voice: null, mirror: null }, p)).catch(() => {});
+  L.ins.forEach((c) => { if (c.open) c.send(Object.assign({ t: 'status' }, p)); });
 }
 
 function prompters() { return R.peers.filter((p) => !p.sameTab && p.presence && p.presence.role === 'prompter'); }
 
+function paintStatus(pr, enabled) {
+  $('#rTitle').textContent = pr && pr.role === 'prompter' ? String(pr.title || 'Sans titre') : enabled ? 'Écran relié, aucun script lancé' : 'Aucun prompteur ouvert';
+  $('#rProg').style.width = pr ? clamp(Number(pr.progress) || 0, 0, 1) * 100 + '%' : '0%';
+  $('#rState').textContent = pr && pr.role === 'prompter' ? (pr.playing ? 'En lecture' : 'En pause') + (pr.voice ? ' · suivi vocal' : '') : 'En attente';
+  $('#rSpeed').textContent = pr && pr.role === 'prompter' ? 'Vitesse ' + fmt1(Number(pr.speed) || 0) : '';
+  $('#rPlayIcon').setAttribute('href', pr && pr.playing ? '#i-pause' : '#i-play');
+  $('#rPlayLbl').textContent = pr && pr.playing ? 'Pause' : 'Lecture';
+  $$('#rPad button').forEach((b) => { b.disabled = !enabled; });
+}
+
 function renderRemote() {
   if ($('#remote').hidden) return;
+  if (!HOSTED) { renderLink(); return; }
   const list = prompters();
   if (!list.find((p) => p.peer === R.target)) R.target = list[0] ? list[0].peer : null;
   const conn = $('#rConn');
@@ -1197,14 +1255,7 @@ function renderRemote() {
   list.forEach((p, i) => { const o = document.createElement('option'); o.value = p.peer; o.textContent = (p.isMe ? 'Mon autre onglet · ' : 'Appareil ' + (i + 1) + ' · ') + String(p.presence.title || 'Sans titre'); sel.appendChild(o); });
   if (R.target) sel.value = R.target;
   const cur = list.find((p) => p.peer === R.target);
-  const pr = cur ? cur.presence : null;
-  $('#rTitle').textContent = pr ? String(pr.title || 'Sans titre') : 'Aucun prompteur ouvert';
-  $('#rProg').style.width = pr ? clamp(Number(pr.progress) || 0, 0, 1) * 100 + '%' : '0%';
-  $('#rState').textContent = pr ? (pr.playing ? 'En lecture' : 'En pause') + (pr.voice ? ' · suivi vocal' : '') : 'En attente';
-  $('#rSpeed').textContent = pr ? 'Vitesse ' + fmt1(Number(pr.speed) || 0) : '';
-  $('#rPlayIcon').setAttribute('href', pr && pr.playing ? '#i-pause' : '#i-play');
-  $('#rPlayLbl').textContent = pr && pr.playing ? 'Pause' : 'Lecture';
-  $$('#rPad button').forEach((b) => { b.disabled = !cur; });
+  paintStatus(cur ? cur.presence : null, !!cur);
   $('#rNote').textContent = !R.room
     ? "La télécommande a besoin de la page publiée sur claude.ai, ouverte avec votre compte sur les deux appareils."
     : cur ? 'Les commandes partent vers le prompteur affiché ci-dessus.'
@@ -1216,12 +1267,14 @@ function remoteCmd(cmd) {
   if (m[cmd]) { act(m[cmd]); updateHud(true); sendPresence(true); }
 }
 
-$$('#rPad [data-cmd]').forEach((b) => b.addEventListener('click', () => {
+function sendCmd(cmd) {
+  if (!HOSTED) { linkSend({ t: 'cmd', cmd }); return; }
   if (!R.room || !R.target) return;
-  R.room.emit('remote', { to: R.target, cmd: b.dataset.cmd }).catch((e) => {
+  R.room.emit('remote', { to: R.target, cmd }).catch((e) => {
     toast(e && e.code === 'not_permitted' ? "Votre accès à cette page ne permet pas de piloter le prompteur." : "Commande non envoyée, réessayez.");
   });
-}));
+}
+$$('#rPad [data-cmd]').forEach((b) => b.addEventListener('click', () => sendCmd(b.dataset.cmd)));
 $('#rTarget').addEventListener('change', (e) => { R.target = e.target.value; renderRemote(); });
 $('#openRemote').addEventListener('click', () => { flushSave(); $('#remote').hidden = false; renderRemote(); });
 $('#closeRemote').addEventListener('click', () => { $('#remote').hidden = true; });
@@ -1244,11 +1297,160 @@ async function initRoom() {
   sendPresence(true);
 }
 
+/* ---------- Liaison directe (version autonome) ---------- */
+// Hors claude.ai, l'iPad (écran) et le téléphone ou le Mac (régie) se relient en pair à pair (WebRTC via PeerJS).
+// Le serveur PeerJS ne sert qu'à la mise en relation : les scripts passent d'un appareil à l'autre, chiffrés.
+const PEER_LIB = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const L = { peer: null, code: '', state: 'off', ins: new Set(), out: null, target: LS.get('tp.target', ''), status: null, retryT: 0, manual: false };
+const peerId = (code) => 'epytome-prompteur-' + code;
+const linkOpen = () => !!(L.out && L.out.open);
+
+function linkSend(msg) { if (linkOpen()) { try { L.out.send(msg); } catch {} } }
+
+function linkCode() {
+  let c = LS.get('tp.code', '');
+  if (!/^[A-Z2-9]{6}$/.test(c)) {
+    c = Array.from(crypto.getRandomValues(new Uint8Array(6)), (n) => CODE_CHARS[n % CODE_CHARS.length]).join('');
+    LS.set('tp.code', c);
+  }
+  return c;
+}
+
+function linkRetry(ms) {
+  clearTimeout(L.retryT);
+  L.retryT = setTimeout(() => { if (L.target && !linkOpen()) linkConnect(L.target, false); }, ms);
+}
+
+async function linkStart() {
+  if (HOSTED || L.peer) return;
+  L.code = linkCode();
+  L.state = 'connecting'; renderRemote();
+  try { await loadScript(PEER_LIB); } catch { L.state = 'offline'; renderRemote(); setTimeout(linkStart, 10000); return; }
+  if (L.peer) return;
+  const peer = new window.Peer(peerId(L.code));
+  L.peer = peer;
+  peer.on('open', () => { L.state = 'ready'; renderRemote(); if (L.target && !linkOpen()) linkConnect(L.target, false); });
+  peer.on('connection', linkIncoming);
+  peer.on('disconnected', () => {
+    L.state = 'connecting'; renderRemote();
+    setTimeout(() => { if (!peer.destroyed && peer.disconnected) peer.reconnect(); }, 2000);
+  });
+  peer.on('error', (e) => {
+    const t = e && e.type;
+    if (t === 'peer-unavailable') {
+      if (L.manual) toast("Écran introuvable. Vérifiez le code, et que le prompteur est ouvert sur l'iPad.", 5000);
+      L.manual = false;
+      linkRetry(5000);
+    } else if (t === 'unavailable-id') {
+      L.state = 'taken';
+    } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(t)) {
+      L.state = 'offline';
+      try { peer.destroy(); } catch {}
+      L.peer = null;
+      setTimeout(linkStart, 5000);
+    }
+    renderRemote();
+  });
+}
+
+// Côté écran : la régie se connecte à nous.
+function linkIncoming(conn) {
+  conn.on('open', () => {
+    L.ins.add(conn);
+    conn.send(Object.assign({ t: 'status' }, promptStatus()));
+    if (!P.open) toast('Régie reliée');
+    renderRemote();
+  });
+  conn.on('data', linkReceive);
+  conn.on('close', () => { L.ins.delete(conn); renderRemote(); });
+  conn.on('error', () => { L.ins.delete(conn); renderRemote(); });
+}
+
+function linkReceive(m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.t === 'scripts' && Array.isArray(m.docs)) Store.merge(m.docs);
+  else if (m.t === 'script' && m.doc) Store.merge([m.doc]);
+  else if (m.t === 'delete' && typeof m.id === 'string') { if (Store.get(m.id) && !(P.open && P.docId === m.id)) Store.remove(m.id, true); }
+  else if (m.t === 'open' && typeof m.id === 'string' && Store.get(m.id)) {
+    if (P.open && P.docId === m.id) return;
+    if (P.open) closeStage();
+    $('#remote').hidden = true;
+    select(m.id, false);
+    launch();
+  }
+  else if (m.t === 'cmd') { if (P.open) remoteCmd(String(m.cmd || '')); }
+  else if (m.t === 'status') { L.status = m; renderRemote(); }
+}
+
+// Côté régie : on se connecte à l'écran et on lui envoie tous nos scripts, puis chaque correction.
+async function linkConnect(code, manual) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z2-9]/g, '');
+  if (code.length !== 6) { toast('Le code de l’écran fait 6 caractères.'); return; }
+  if (code === L.code) { toast("C'est le code de cet appareil. Saisissez celui de l'écran."); return; }
+  L.target = code; LS.set('tp.target', code); L.manual = !!manual;
+  if (!L.peer || L.state !== 'ready') { renderRemote(); linkStart(); return; }
+  if (L.out) { const old = L.out; L.out = null; try { old.close(); } catch {} }
+  const conn = L.peer.connect(peerId(code), { reliable: true });
+  L.out = conn; L.status = null; renderRemote();
+  conn.on('open', () => {
+    L.manual = false;
+    conn.send({ t: 'scripts', docs: Store.docs });
+    toast('Écran relié');
+    renderRemote();
+  });
+  conn.on('data', linkReceive);
+  conn.on('close', () => { if (L.out === conn) { L.out = null; L.status = null; renderRemote(); linkRetry(3000); } });
+  conn.on('error', () => {});
+}
+
+function linkUnlink() {
+  clearTimeout(L.retryT);
+  L.target = ''; LS.set('tp.target', '');
+  if (L.out) { const old = L.out; L.out = null; try { old.close(); } catch {} }
+  L.status = null;
+  renderRemote();
+}
+
+function renderLink() {
+  $('#rLink').hidden = false;
+  $('#rPeers').hidden = true;
+  $('#lCode').textContent = L.code || '······';
+  const self = $('#lSelf');
+  self.className = 'pill' + (L.state === 'ready' ? ' ok' : '');
+  self.textContent = ({ ready: 'Joignable', connecting: 'Connexion…', offline: 'Hors ligne', taken: 'Déjà ouvert dans un autre onglet', off: 'Connexion…' }[L.state] || '') + (L.ins.size ? ' · régie reliée' : '');
+  const on = linkOpen();
+  const conn = $('#rConn');
+  conn.className = 'pill' + (on ? ' ok' : '');
+  conn.textContent = on ? 'Écran ' + L.target + ' relié' : L.target ? 'Recherche de ' + L.target + '…' : 'Aucun écran relié';
+  if (document.activeElement !== $('#lInput')) $('#lInput').value = L.target || '';
+  $('#lUnlink').hidden = !L.target;
+  const sel = $('#lScript');
+  const keep = sel.value || Lib.active;
+  sel.textContent = '';
+  Store.docs.forEach((d) => { const o = document.createElement('option'); o.value = d.id; o.textContent = d.title || 'Sans titre'; sel.appendChild(o); });
+  if (keep && Store.get(keep)) sel.value = keep;
+  $('#lOpen').disabled = !on || !Store.docs.length;
+  paintStatus(on ? L.status : null, on);
+  $('#rNote').textContent = on
+    ? "Les scripts de cet appareil sont envoyés à l'écran, et chaque correction faite ici s'y affiche en direct, à la même phrase. Au clavier : espace, flèches, R."
+    : "Sur l'iPad du prompteur, ouvrez Télécommande pour lire son code, puis saisissez-le ici, sur le téléphone ou le Mac qui pilote.";
+}
+
+$('#lForm').addEventListener('submit', (e) => { e.preventDefault(); $('#lInput').blur(); linkConnect($('#lInput').value, true); });
+$('#lUnlink').addEventListener('click', linkUnlink);
+$('#lOpen').addEventListener('click', () => {
+  const d = Store.get($('#lScript').value);
+  if (!d) return;
+  linkSend({ t: 'script', doc: d });
+  linkSend({ t: 'open', id: d.id });
+});
+
 /* ---------- Démarrage ---------- */
-// Version autonome (hors claude.ai) : pas de salle partagée, donc pas de télécommande ; app d'écran d'accueil déjà plein écran ; cache hors ligne.
+// Version autonome (hors claude.ai) : liaison directe au lieu de la salle partagée ; app d'écran d'accueil déjà plein écran ; cache hors ligne.
 const HOSTED = !!(window.claude && typeof window.claude.use === 'function');
 const STANDALONE_APP = navigator.standalone === true || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
-if (!HOSTED) $('#openRemote').hidden = true;
+if (!HOSTED) linkStart();
 // Sans plein écran possible (iPad, page intégrée), le bouton disparaît au lieu d'échouer.
 if (STANDALONE_APP || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) $('#controls [data-act="full"]').hidden = true;
 if (!HOSTED && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
