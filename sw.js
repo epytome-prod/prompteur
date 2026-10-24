@@ -1,4 +1,4 @@
-const CACHE = 'prompteur-e29f67d4f8';
+const CACHE = 'prompteur-c2f12623c9';
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));

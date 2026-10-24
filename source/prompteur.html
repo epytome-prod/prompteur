@@ -97,6 +97,7 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 .scroller { position: absolute; left: 0; right: 0; top: 0; will-change: transform; }
 .ptext { position: relative; margin: 0 auto; width: calc(var(--p-width) * 1%); max-width: calc(100% - 32px); font-family: var(--p-font); font-size: calc(var(--p-size) * 1px); line-height: var(--p-lh); color: var(--p-fg); text-align: var(--p-align); text-transform: var(--p-case); overflow-wrap: break-word; }
 .ptext p { margin: 0 0 .8em; }
+.ptext .ln { display: block; }
 .ptext .sec { font-family: var(--ui); font-size: max(14px, .3em); font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--amber); margin: 1.4em 0 .5em; line-height: 1.2; }
 .ptext .sec:first-child { margin-top: 0; }
 .ptext .cue { font-family: var(--ui); font-style: italic; font-size: .58em; color: var(--amber); vertical-align: .12em; text-transform: none; }
@@ -632,6 +633,7 @@ Store.onChange = (src) => {
   }
   renderList();
   renderEditor(false);
+  refreshStage();
 };
 
 titleIn.addEventListener('input', scheduleSave);
@@ -766,16 +768,43 @@ function renderScript(body) {
       if (!head[2] || !head[2].trim()) continue;
     }
     const para = head ? head[2].trim() : b;
-    html += '<p>' + para.split(/(\[[^\]]*\]|\*\*[^*]+\*\*)/g).map((seg) => {
+    // Chaque ligne du texte est un point de reprise (← →), pas seulement chaque paragraphe.
+    html += '<p>' + para.split('\n').map((line) => '<span class="ln">' + line.split(/(\[[^\]]*\]|\*\*[^*]+\*\*)/g).map((seg) => {
       if (!seg) return '';
       if (/^\[[^\]]*\]$/.test(seg)) return `<span class="cue">${esc(seg)}</span>`;
       if (/^\*\*[^*]+\*\*$/.test(seg)) return words(seg.slice(2, -2), true);
       return words(seg, false);
-    }).join('') + '</p>';
+    }).join('') + '</span>').join('') + '</p>';
   }
   ptext.innerHTML = html || '<p>Ce script est vide.</p>';
   P.words = [...ptext.querySelectorAll('.w')].map((el) => ({ el, n: norm(el.textContent) }));
-  P.blocks = [...ptext.querySelectorAll('p, .sec')];
+  P.blocks = [...ptext.querySelectorAll('.ln, .sec')];
+}
+
+// Le script change sur un autre appareil pendant le défilement : on redessine en gardant la ligne en cours au repère.
+function refreshStage() {
+  if (!P.open) return;
+  const d = Store.get(P.docId);
+  if (!d || d.body === P.body) return;
+  const tops = P.blocks.map((b) => b.offsetTop - P.markerY);
+  let li = 0;
+  tops.forEach((t, i) => { if (t <= P.pos + 2) li = i; });
+  const offset = tops.length ? P.pos - tops[li] : 0;
+  const anchorText = P.blocks[li] ? P.blocks[li].textContent : '';
+  P.body = d.body;
+  P.title = d.title || 'Sans titre';
+  $('#hudTitle').textContent = P.title;
+  renderScript(d.body);
+  measure();
+  // Même phrase qu'avant si elle existe encore (la plus proche), sinon même rang.
+  let ni = Math.min(li, P.blocks.length - 1), best = Infinity;
+  P.blocks.forEach((bl, i) => { if (anchorText && bl.textContent === anchorText && Math.abs(i - li) < best) { best = Math.abs(i - li); ni = i; } });
+  const b = P.blocks[ni];
+  P.pos = b ? clamp(b.offsetTop - P.markerY + offset, 0, P.maxPos) : 0;
+  P.jumpTo = null;
+  if (V.on) syncVoiceTo(P.pos);
+  paint();
+  updateHud(true);
 }
 
 function applySettings() {
@@ -923,6 +952,7 @@ function launch() {
   const d = Store.get(Lib.active);
   if (!d) return;
   P.title = d.title || 'Sans titre';
+  P.docId = d.id; P.body = d.body;
   $('#hudTitle').textContent = P.title;
   renderScript(d.body);
   P.open = true; P.pos = 0; P.maxPos = 0; P.elapsed = 0; P.last = 0; P.jumpTo = null;
