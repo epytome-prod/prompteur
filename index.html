@@ -326,9 +326,9 @@ select.sel { background: var(--bg); border: 1px solid var(--line); border-radius
   </div>
   <div class="controls" id="controls">
     <button class="cbtn" type="button" data-act="top" aria-label="Revenir au début" title="Début (R)"><svg class="i"><use href="#i-top"/></svg></button>
-    <button class="cbtn" type="button" data-act="prev" aria-label="Paragraphe précédent" title="Paragraphe précédent (←)"><svg class="i"><use href="#i-up"/></svg></button>
+    <button class="cbtn" type="button" data-act="prev" aria-label="Ligne précédente" title="Ligne précédente (←)"><svg class="i"><use href="#i-up"/></svg></button>
     <button class="cbtn play" type="button" data-act="play" aria-label="Lecture ou pause" title="Lecture / pause (espace)"><svg class="i"><use href="#i-play" id="playIcon"/></svg></button>
-    <button class="cbtn" type="button" data-act="next" aria-label="Paragraphe suivant" title="Paragraphe suivant (→)"><svg class="i"><use href="#i-down"/></svg></button>
+    <button class="cbtn" type="button" data-act="next" aria-label="Ligne suivante" title="Ligne suivante (→)"><svg class="i"><use href="#i-down"/></svg></button>
     <span class="sep"></span>
     <button class="cbtn" type="button" data-act="slower" aria-label="Ralentir" title="Ralentir (↓)"><svg class="i"><use href="#i-minus"/></svg></button>
     <span class="speed"><span class="v num" id="spdVal">3,0</span><span class="w num" id="spdWpm">≈ 0 mots/min</span></span>
@@ -388,7 +388,7 @@ select.sel { background: var(--bg); border: 1px solid var(--line); border-radius
       <div class="keys">
         <kbd>Espace</kbd><span>Lecture / pause (ou toucher l'écran)</span>
         <kbd>↑ ↓</kbd><span>Plus vite / plus lent</span>
-        <kbd>← →</kbd><span>Paragraphe précédent / suivant (télécommandes Bluetooth : Page ↑ ↓)</span>
+        <kbd>← →</kbd><span>Ligne précédente / suivante (télécommandes Bluetooth : Page ↑ ↓)</span>
         <kbd>+ −</kbd><span>Taille du texte</span>
         <kbd>R</kbd><span>Revenir au début</span>
         <kbd>H V</kbd><span>Miroir horizontal / vertical</span>
@@ -429,9 +429,9 @@ select.sel { background: var(--bg); border: 1px solid var(--line); border-radius
     </div>
     <div class="r-pad" id="rPad">
       <button type="button" class="big" data-cmd="toggle"><svg class="i"><use href="#i-play" id="rPlayIcon"/></svg><span id="rPlayLbl">Lecture</span></button>
-      <button type="button" data-cmd="prev"><svg class="i"><use href="#i-up"/></svg>Paragraphe préc.</button>
+      <button type="button" data-cmd="prev"><svg class="i"><use href="#i-up"/></svg>Ligne préc.</button>
       <button type="button" data-cmd="top"><svg class="i"><use href="#i-top"/></svg>Début</button>
-      <button type="button" data-cmd="next"><svg class="i"><use href="#i-down"/></svg>Paragraphe suiv.</button>
+      <button type="button" data-cmd="next"><svg class="i"><use href="#i-down"/></svg>Ligne suiv.</button>
       <button type="button" data-cmd="slower"><svg class="i"><use href="#i-minus"/></svg>Plus lent</button>
       <button type="button" data-cmd="smaller"><b style="font-size:18px">A−</b>Texte</button>
       <button type="button" data-cmd="faster"><svg class="i"><use href="#i-plus"/></svg>Plus vite</button>
