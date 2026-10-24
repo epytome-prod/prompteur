@@ -195,9 +195,10 @@ select.sel { background: var(--bg); border: 1px solid var(--line); border-radius
 .r-card .t { font-weight: 700; font-size: 18px; overflow-wrap: anywhere; }
 .r-card .meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
 .r-card .prog { border-radius: 2px; overflow: hidden; height: 4px; }
-.r-pad { width: min(520px, 100%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.r-pad button { min-height: 72px; border-radius: 14px; border: 1px solid var(--line); background: var(--raise); display: grid; place-items: center; gap: 4px; font-size: 13px; color: var(--fg); padding: 8px; }
+.r-pad { width: min(520px, 100%); display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 10px; }
+.r-pad button { grid-column: span 4; text-align: center; min-height: 72px; border-radius: 14px; border: 1px solid var(--line); background: var(--raise); display: grid; place-items: center; gap: 4px; font-size: 13px; color: var(--fg); padding: 8px; }
 .r-pad button svg { width: 24px; height: 24px; }
+.r-pad button.q { grid-column: span 3; }
 .r-pad .big { grid-column: 1 / -1; min-height: 110px; background: var(--amber); color: var(--amber-ink); border-color: var(--amber); font-weight: 700; font-size: 16px; }
 .r-pad .big svg { width: 34px; height: 34px; }
 .r-pad button:disabled { opacity: .4; }
@@ -433,11 +434,12 @@ select.sel { background: var(--bg); border: 1px solid var(--line); border-radius
       <button type="button" data-cmd="top"><svg class="i"><use href="#i-top"/></svg>Début</button>
       <button type="button" data-cmd="next"><svg class="i"><use href="#i-down"/></svg>Ligne suiv.</button>
       <button type="button" data-cmd="slower"><svg class="i"><use href="#i-minus"/></svg>Plus lent</button>
-      <button type="button" data-cmd="smaller"><b style="font-size:18px">A−</b>Texte</button>
-      <button type="button" data-cmd="faster"><svg class="i"><use href="#i-plus"/></svg>Plus vite</button>
-      <button type="button" data-cmd="mirror"><svg class="i"><use href="#i-fliph"/></svg>Miroir</button>
-      <button type="button" data-cmd="bigger"><b style="font-size:18px">A+</b>Texte</button>
       <button type="button" data-cmd="voice"><svg class="i"><use href="#i-mic"/></svg>Suivi vocal</button>
+      <button type="button" data-cmd="faster"><svg class="i"><use href="#i-plus"/></svg>Plus vite</button>
+      <button type="button" class="q" data-cmd="smaller"><b style="font-size:18px">A−</b>Texte</button>
+      <button type="button" class="q" data-cmd="bigger"><b style="font-size:18px">A+</b>Texte</button>
+      <button type="button" class="q" data-cmd="mirror"><svg class="i"><use href="#i-fliph"/></svg>Miroir horiz.</button>
+      <button type="button" class="q" data-cmd="mirrorv"><svg class="i"><use href="#i-flipv"/></svg>Miroir vert.</button>
     </div>
     <p class="r-note" id="rNote">Ouvrez cette même page sur l'appareil de tournage, lancez un script : il apparaît ici et se pilote depuis ce téléphone.</p>
   </div>
@@ -1086,7 +1088,7 @@ addEventListener('resize', () => { if (P.open) measure(); });
 document.addEventListener('keydown', (e) => {
   // Régie : sur l'écran Télécommande, le clavier pilote l'écran relié.
   if (!P.open && !$('#remote').hidden && !(e.target.closest && e.target.closest('input, select, textarea')) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    const km = { ' ': 'toggle', ArrowUp: 'faster', ArrowDown: 'slower', ArrowLeft: 'prev', ArrowRight: 'next', PageUp: 'prev', PageDown: 'next', r: 'top', R: 'top', '+': 'bigger', '=': 'bigger', '-': 'smaller', h: 'mirror', H: 'mirror' };
+    const km = { ' ': 'toggle', ArrowUp: 'faster', ArrowDown: 'slower', ArrowLeft: 'prev', ArrowRight: 'next', PageUp: 'prev', PageDown: 'next', r: 'top', R: 'top', '+': 'bigger', '=': 'bigger', '-': 'smaller', h: 'mirror', H: 'mirror', v: 'mirrorv', V: 'mirrorv', m: 'voice', M: 'voice' };
     if (km[e.key]) { e.preventDefault(); sendCmd(km[e.key]); }
     return;
   }
@@ -1280,7 +1282,7 @@ function renderRemote() {
 }
 
 function remoteCmd(cmd) {
-  const m = { toggle: 'play', top: 'top', prev: 'prev', next: 'next', faster: 'faster', slower: 'slower', bigger: 'bigger', smaller: 'smaller', mirror: 'mirrorX', voice: 'voice' };
+  const m = { toggle: 'play', top: 'top', prev: 'prev', next: 'next', faster: 'faster', slower: 'slower', bigger: 'bigger', smaller: 'smaller', mirror: 'mirrorX', mirrorv: 'mirrorY', voice: 'voice' };
   if (m[cmd]) { act(m[cmd]); updateHud(true); sendPresence(true); }
 }
 
